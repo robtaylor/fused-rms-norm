@@ -50,10 +50,13 @@ createPipeline(id<MTLDevice> device, NSString *kernName, NSError **error) {
   return [device newComputePipelineStateWithFunction:fn error:error];
 }
 
-// Dispatch a layernorm kernel with 7 buffer bindings + threadgroup memory.
+// Dispatch a normalization kernel with 7 buffer bindings + threadgroup memory.
+//
+// Uses stream->commandEncoder() to properly integrate with PyTorch's MPS
+// encoder lifecycle management. The stream tracks the active encoder and
+// ends it during synchronize() via endKernelCoalescing().
 static void dispatchNormKernel(id<MTLComputePipelineState> pso,
                                at::mps::MPSStream *stream,
-                               id<MTLCommandBuffer> cmdBuf,
                                // Buffers 0-2: tensor buffers with offsets
                                id<MTLBuffer> buf0, NSUInteger off0,
                                id<MTLBuffer> buf1, NSUInteger off1,
@@ -67,9 +70,8 @@ static void dispatchNormKernel(id<MTLComputePipelineState> pso,
   // Shared memory: MAX_SIMDGROUPS (16) floats for reduction.
   const uint32_t shared_mem_size = 16 * sizeof(float);
 
-  dispatch_queue_t q = stream->queue();
-  dispatch_sync(q, ^{
-    id<MTLComputeCommandEncoder> enc = [cmdBuf computeCommandEncoder];
+  dispatch_sync(stream->queue(), ^{
+    id<MTLComputeCommandEncoder> enc = stream->commandEncoder();
     TORCH_CHECK(enc, "Failed to create compute encoder");
 
     [enc setComputePipelineState:pso];
@@ -88,10 +90,11 @@ static void dispatchNormKernel(id<MTLComputePipelineState> pso,
     MTLSize grid = MTLSizeMake(threadgroups, 1, 1);
     MTLSize tg = MTLSizeMake(threads_per_tg, 1, 1);
     [enc dispatchThreadgroups:grid threadsPerThreadgroup:tg];
-    [enc endEncoding];
+    // Don't call [enc endEncoding] — the stream manages encoder lifecycle
+    // via endKernelCoalescing() during synchronize().
   });
 
-  stream->synchronize(at::mps::SyncType::COMMIT);
+  stream->synchronize(at::mps::SyncType::COMMIT_AND_CONTINUE);
 }
 
 void rms_norm(torch::Tensor &out, torch::Tensor &input,
@@ -110,7 +113,6 @@ void rms_norm(torch::Tensor &out, torch::Tensor &input,
     TORCH_CHECK(stream, "Failed to get MPS stream");
 
     id<MTLDevice> device = stream->device();
-    id<MTLCommandBuffer> cmdBuf = stream->commandBuffer();
     NSError *error = nil;
 
     NSString *kernName = kernelNameForDtype("rms_norm", input.scalar_type());
@@ -125,7 +127,7 @@ void rms_norm(torch::Tensor &out, torch::Tensor &input,
         std::min<uint32_t>(512, hidden_size);
 
     dispatchNormKernel(
-        pso, stream, cmdBuf,
+        pso, stream,
         getMTLBufferStorage(out),
         out.storage_offset() * out.element_size(),
         getMTLBufferStorage(input),
@@ -156,7 +158,6 @@ void fused_add_rms_norm(torch::Tensor &input, torch::Tensor &residual,
     TORCH_CHECK(stream, "Failed to get MPS stream");
 
     id<MTLDevice> device = stream->device();
-    id<MTLCommandBuffer> cmdBuf = stream->commandBuffer();
     NSError *error = nil;
 
     NSString *kernName =
@@ -172,7 +173,7 @@ void fused_add_rms_norm(torch::Tensor &input, torch::Tensor &residual,
         std::min<uint32_t>(512, hidden_size);
 
     dispatchNormKernel(
-        pso, stream, cmdBuf,
+        pso, stream,
         getMTLBufferStorage(input),
         input.storage_offset() * input.element_size(),
         getMTLBufferStorage(residual),
