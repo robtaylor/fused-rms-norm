@@ -2,7 +2,7 @@
   description = "Flake for fused RMS normalization kernel";
 
   inputs = {
-    kernel-builder.url = "github:huggingface/kernel-builder";
+    kernel-builder.url = "github:ChipFlow/kernels/metal-stack";
   };
 
   outputs =
