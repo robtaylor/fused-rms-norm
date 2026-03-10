@@ -10,6 +10,7 @@ src = [
 
 [kernel.fused_rms_norm_metal]
 backend = "metal"
+metal-std-version = "metal3.1"
 src = [
   "fused-rms-norm-metal/rms_norm.metal",
   "fused-rms-norm-metal/rms_norm.mm",

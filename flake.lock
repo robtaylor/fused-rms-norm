@@ -41,11 +41,11 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1772650055,
-        "narHash": "sha256-6R8dJEPH+uHJyvr3nZPZ/xFwULzR4UCsLQGSjLRsxQE=",
+        "lastModified": 1773072978,
+        "narHash": "sha256-wTtMgTt1IMM5BFMh/lu+Y1jTw1P69aZcTr4fCNGvaw4=",
         "owner": "ChipFlow",
         "repo": "kernels",
-        "rev": "f85b1d195c115acdb3f92c061a0dafcc0f9bfe79",
+        "rev": "c220611160b60919af0c7c85438d82f3e3577aa2",
         "type": "github"
       },
       "original": {
